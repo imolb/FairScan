@@ -17,3 +17,5 @@
 .cxx
 local.properties
 *.tflite
+.kotlin/
+bin/
