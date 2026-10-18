@@ -16,6 +16,8 @@ package org.fairscan.app.ui.screens.export
 
 import android.net.Uri
 import org.fairscan.app.ui.screens.settings.ExportFormat
+import org.fairscan.app.ui.screens.settings.ExportFolder
+import org.fairscan.app.ui.screens.settings.TagGroup
 
 data class ExportUiState(
     val format: ExportFormat = ExportFormat.PDF,
@@ -32,8 +34,18 @@ data class ExportUiState(
     val savedBundle: SavedBundle? = null,
     val hasShared: Boolean = false,
     val error: ExportError? = null,
+    // Export folder list of the settings and the folder selected for this save
+    val exportFolders: List<ExportFolder> = emptyList(),
+    val selectedFolderUri: String? = null,
+    // Tag groups of the settings and the selected tag of each group (group name -> tag name)
+    val tagGroups: List<TagGroup> = emptyList(),
+    val selectedTags: Map<String, String> = emptyMap(),
 ) {
     val hasSavedOrShared get() = savedBundle != null || hasShared
+
+    // Saving requires an export folder selection as soon as export folders are configured
+    val isFolderSelectedOrNotRequired: Boolean
+        get() = exportFolders.isEmpty() || selectedFolderUri != null
 }
 
 data class ExportProgress(

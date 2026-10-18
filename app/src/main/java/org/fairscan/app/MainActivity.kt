@@ -45,6 +45,7 @@ import androidx.compose.ui.platform.toClipEntry
 import androidx.compose.ui.res.stringResource
 import androidx.core.content.ContextCompat.checkSelfPermission
 import androidx.core.net.toFile
+import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
@@ -71,6 +72,7 @@ import org.fairscan.app.ui.screens.export.ExportResult
 import org.fairscan.app.ui.screens.export.ExportScreenWrapper
 import org.fairscan.app.ui.screens.export.ExportViewModel
 import org.fairscan.app.ui.screens.settings.OcrLanguagesScreen
+import org.fairscan.app.ui.screens.settings.SettingsActions
 import org.fairscan.app.ui.screens.settings.SettingsScreen
 import org.fairscan.app.ui.screens.settings.SettingsUiState
 import org.fairscan.app.ui.screens.settings.SettingsViewModel
@@ -224,6 +226,8 @@ class MainActivity : ComponentActivity() {
                             exportActions = ExportActions(
                                 prepareExportIfNeeded = exportViewModel::prepareExportIfNeeded,
                                 setFilename = exportViewModel::setFilename,
+                                selectFolder = exportViewModel::onFolderSelected,
+                                toggleTag = exportViewModel::onTagToggled,
                                 share = { exportViewModel.onShareClicked() },
                                 save = { exportViewModel.onSaveClicked() },
                                 open = { item -> openUri(item.uri, item.format.mimeType, logger) },
@@ -303,20 +307,17 @@ class MainActivity : ComponentActivity() {
                         Intent.FLAG_GRANT_WRITE_URI_PERMISSION
                 try {
                     contentResolver.takePersistableUriPermission(uri, flags)
-                    settingsViewModel.setExportDirUri(uri.toString())
+                    settingsViewModel.beginAddExportFolder(uri.toString())
                 } catch (e: Exception) {
                     logger.e("Settings", "Failed to set export dir to $uri", e)
                     showToast(this.getString(R.string.error_file_picker_result))
                 }
             }
         }
-        LaunchedEffect(Unit) {
-            settingsViewModel.refreshExportDirName()
-        }
-        SettingsScreen(
-            settingsUiState,
-            onDefaultColorModeChanged = { mode -> settingsViewModel.setDefaultColorMode(mode) },
-            onChooseDirectoryClick = {
+        val permissionFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+        val settingsActions = SettingsActions(
+            onAddFolderClick = {
                 try {
                     launcher.launch(null)
                 } catch (e: Exception) {
@@ -325,7 +326,41 @@ class MainActivity : ComponentActivity() {
                     showToast(message)
                 }
             },
-            onResetExportDirClick = { settingsViewModel.setExportDirUri(null) },
+            onFolderNameConfirmed = settingsViewModel::addExportFolder,
+            onCancelAddFolder = { uri ->
+                try {
+                    contentResolver.releasePersistableUriPermission(uri.toUri(), permissionFlags)
+                } catch (e: Exception) {
+                    logger.e("Settings", "Failed to release permission for $uri", e)
+                }
+                settingsViewModel.cancelAddExportFolder()
+            },
+            onDeleteFolder = { uri ->
+                try {
+                    contentResolver.releasePersistableUriPermission(uri.toUri(), permissionFlags)
+                } catch (e: Exception) {
+                    logger.e("Settings", "Failed to release permission for $uri", e)
+                }
+                settingsViewModel.deleteExportFolder(uri)
+            },
+            onRenameFolder = settingsViewModel::renameExportFolder,
+            onMoveFolder = settingsViewModel::moveExportFolder,
+            onAddTagGroup = settingsViewModel::addTagGroup,
+            onDeleteTagGroup = settingsViewModel::deleteTagGroup,
+            onMoveTagGroup = settingsViewModel::moveTagGroup,
+            onAddTag = settingsViewModel::addTag,
+            onDeleteTag = settingsViewModel::deleteTag,
+            onMoveTag = settingsViewModel::moveTag,
+            onAddSynonym = settingsViewModel::addSynonym,
+            onDeleteSynonym = settingsViewModel::deleteSynonym,
+        )
+        LaunchedEffect(Unit) {
+            settingsViewModel.refreshFolderNames()
+        }
+        SettingsScreen(
+            settingsUiState,
+            onDefaultColorModeChanged = { mode -> settingsViewModel.setDefaultColorMode(mode) },
+            actions = settingsActions,
             onExportFormatChanged = { format -> settingsViewModel.setExportFormat(format) },
             onExportQualityChanged = { quality -> settingsViewModel.setExportQuality(quality) },
             onDefaultFileNameStyleChanged = settingsViewModel::setDefaultFilenameStyle,

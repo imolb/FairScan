@@ -2,6 +2,12 @@
 <resources>
     <string name="about">Über</string>
     <string name="add_page">Seite hinzufügen</string>
+    <string name="add_export_folder">Exportordner hinzufügen</string>
+    <string name="add_tag_group">Tag-Gruppe hinzufügen</string>
+    <string name="add_tag">Tag hinzufügen</string>
+    <string name="add_synonym">Synonym hinzufügen</string>
+    <string name="synonym_dialog_title">Neues Synonym für %1$s</string>
+    <string name="delete_synonym">Synonym löschen</string>
     <string name="app_tagline">Eine einfache und respektvolle App zum Scannen Ihrer Dokumente.</string>
     <string name="apply">Anwenden</string>
     <string name="back">Zurück</string>
@@ -24,6 +30,9 @@
     <string name="creating_export">Export wird vorbereitet…</string>
     <string name="crop">Zuschneiden</string>
     <string name="delete">Löschen</string>
+    <string name="delete_export_folder">Exportordner löschen</string>
+    <string name="delete_tag_group">Tag-Gruppe löschen</string>
+    <string name="delete_tag">Tag löschen</string>
     <string name="delete_page">Seite löschen</string>
     <string name="delete_page_warning">Möchten Sie diese Seite löschen?</string>
     <string name="developer">Entwickler</string>
@@ -31,12 +40,15 @@
     <string name="error_context_folder">Exportordner: %1$s</string>
     <string name="error_context_provider">Anbieter: %1$s</string>
     <string name="error_export_dir_permission_lost">Der ausgewählte Exportordner ist nicht mehr zugänglich. Bitte wählen Sie einen anderen Ordner.</string>
+    <string name="error_export_folder_required">Bitte wählen Sie einen Exportordner aus</string>
     <string name="error_no_app">Keine App zum Öffnen dieser Datei gefunden</string>
     <string name="error_occurred">Ein Fehler ist aufgetreten</string>
     <string name="error_save">Datei konnte nicht gespeichert werden</string>
     <string name="export">Exportieren</string>
     <string name="export_as">Als %1$s exportieren</string>
     <string name="export_directory">Exportordner</string>
+    <string name="export_folder_name_dialog_title">Name des Exportordners</string>
+    <string name="export_folders">Exportordner</string>
     <string name="export_folder_permission_lost">Zugriff auf Ordner verloren</string>
     <string name="export_format">Exportformat</string>
     <string name="export_quality">Exportqualität</string>
@@ -53,10 +65,14 @@
     <string name="license">Lizenz</string>
     <string name="licensed_under">Diese Anwendung ist unter der GNU General Public License v3.0 lizenziert.</string>
     <string name="menu">Menü</string>
+    <string name="move_up">Nach oben verschieben</string>
+    <string name="move_down">Nach unten verschieben</string>
     <string name="new_document_warning">Der aktuelle Scan geht verloren. Möchten Sie fortfahren?</string>
+    <string name="ok">OK</string>
     <string name="open">Öffnen</string>
     <string name="open_file">Datei öffnen</string>
     <string name="reset_to_default">Auf Standard zurücksetzen</string>
+    <string name="rename">Umbenennen</string>
     <string name="rotate_left">Nach links drehen</string>
     <string name="rotate_right">Nach rechts drehen</string>
     <string name="save">Speichern</string>
@@ -75,6 +91,7 @@
     <string name="settings_ocr_languages_installed">Installiert</string>
     <string name="settings_ocr_suggested">Empfohlen</string>
     <string name="settings_section_ocr">Texterkennung</string>
+    <string name="settings_section_tags">Tags</string>
     <string name="settings_section_scan">Scan</string>
     <string name="settings_section_export">Export</string>
     <string name="share">Teilen</string>
@@ -82,6 +99,8 @@
     <string name="storage_permission_denied">Datei kann nicht gespeichert werden: Berechtigung verweigert</string>
     <string name="support">Support</string>
     <string name="support_last_image">Problem mit dem zuletzt aufgenommenen Bild melden</string>
+    <string name="tag_group_name_dialog_title">Name der Tag-Gruppe</string>
+    <string name="tag_name_dialog_title">Neuer Tag in %1$s</string>
     <string name="text_recognition_disabled">Texterkennung: deaktiviert</string>
     <string name="text_recognition_enabled">Texterkennung: aktiviert</string>
     <string name="turn_off_torch">Taschenlampe ausschalten</string>

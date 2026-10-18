@@ -26,12 +26,13 @@ data class GeneratedPdf(
     val pageCount: Int,
 )
 
-fun interface PdfWriter {
+interface PdfWriter {
     suspend fun writePdfFromJpegs(
         pages: List<PageToExport<EncodedImage>>,
         outputStream: OutputStream,
         disableOcr: Boolean,
         onPageCompleted: (Int) -> Unit,
+        onOcrText: (pageIndex: Int, text: String) -> Unit = { _, _ -> },
     )
 }
 
@@ -52,13 +53,14 @@ class FileManager(
     suspend fun generatePdf(
         pages: List<PageToExport<EncodedImage>>,
         disableOcr: Boolean,
-        onPageCompleted: (Int) -> Unit
+        onPageCompleted: (Int) -> Unit,
+        onOcrText: (pageIndex: Int, text: String) -> Unit = { _, _ -> },
     ): GeneratedPdf {
         pdfDir.mkdirs()
         require(pdfDir.exists() && pdfDir.isDirectory) { "Invalid pdfDir: $pdfDir" }
         val file = File(pdfDir, "${System.currentTimeMillis()}.pdf")
         FileOutputStream(file).use {
-            pdfWriter.writePdfFromJpegs(pages, it, disableOcr, onPageCompleted)
+            pdfWriter.writePdfFromJpegs(pages, it, disableOcr, onPageCompleted, onOcrText)
         }
         val sizeBytes = file.length()
         return GeneratedPdf(file, sizeBytes, pages.size)

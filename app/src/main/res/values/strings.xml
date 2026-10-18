@@ -18,6 +18,18 @@
     <string name="back">Back</string>
     <!-- Export screen, only when the output format is JPEG and the document has black & white pages -->
     <string name="black_and_white_jpeg_hint">Black &amp; white pages would be smaller and sharper if exported as PDF.</string>
+    <!-- Settings screen: icon description ✚ next to the export folder list -->
+    <string name="add_export_folder">Add export folder</string>
+    <!-- Settings screen: icon description ✚ next to the tag groups -->
+    <string name="add_tag_group">Add tag group</string>
+    <!-- Settings screen: button in a tag group -->
+    <string name="add_tag">Add tag</string>
+    <!-- Settings screen: icon description ✚ next to a tag -->
+    <string name="add_synonym">Add synonym</string>
+    <!-- Settings screen: title (%1$s is the tag name) of the dialog to add a synonym -->
+    <string name="synonym_dialog_title">New synonym for %1$s</string>
+    <!-- Settings screen: icon description ✕ on a synonym -->
+    <string name="delete_synonym">Delete synonym</string>
     <!-- Error message (as a toast) -->
     <string name="camera_permission_denied">Camera permission was denied</string>
     <!-- Appears on the Camera screen -->
@@ -76,6 +88,8 @@
     <string name="error_no_app">No app found to open this file</string>
     <!-- Generic message for unexpected errors in various screens: appears as a toast -->
     <string name="error_occurred">An error occurred</string>
+    <!-- Export screen: safety net when no export folder is selected -->
+    <string name="error_export_folder_required">Please select an export folder</string>
     <!-- Export screen -->
     <string name="error_save">Failed to save file</string>
     <!-- Document screen: button -->
@@ -84,6 +98,16 @@
     <string name="export_as">Export as %1$s</string>
     <!-- Settings screen -->
     <string name="export_directory">Export folder</string>
+    <!-- Settings screen: fallback given name of a migrated export folder -->
+    <string name="export_folder_default_name" translatable="false">Export folder</string>
+    <!-- Settings screen: icon description 🗑 of an export folder -->
+    <string name="delete_export_folder">Delete export folder</string>
+    <!-- Settings screen: icon description 🖉 of an export folder -->
+    <string name="rename">Rename</string>
+    <!-- Settings screen: title of the dialog to name an export folder -->
+    <string name="export_folder_name_dialog_title">Name of the export folder</string>
+    <!-- Settings screen: title above the export folder list -->
+    <string name="export_folders">Export folders</string>
     <!-- Settings screen -->
     <string name="export_folder_permission_lost">Folder access lost</string>
     <!-- Settings screen -->
@@ -116,6 +140,12 @@
     <string name="licensed_under">This application is licensed under the GNU General Public License v3.0.</string>
     <!-- Icon description for ⋮ -->
     <string name="menu">Menu</string>
+    <!-- Icon description ▲ -->
+    <string name="move_up">Move up</string>
+    <!-- Icon description ▼ -->
+    <string name="move_down">Move down</string>
+    <!-- Dialogs: button -->
+    <string name="ok">OK</string>
     <!-- Export screen: dialog -->
     <string name="new_document_warning">The current scan will be lost. Do you want to continue?</string>
     <!-- Export screen: button -->
@@ -160,6 +190,8 @@
     <string name="settings_ocr_suggested">Suggested</string>
     <!-- Settings screen: section title -->
     <string name="settings_section_ocr">Text recognition</string>
+    <!-- Settings screen: section title in the "Export" section -->
+    <string name="settings_section_tags">Tags</string>
     <!-- Settings screen: section title -->
     <string name="settings_section_scan">Scan</string>
     <!-- Settings screen: section title -->
@@ -174,6 +206,14 @@
     <string name="support">Support</string>
     <!-- About screen -->
     <string name="support_last_image">Report a problem with last captured image</string>
+    <!-- Settings screen: title of the dialog to name a tag group -->
+    <string name="tag_group_name_dialog_title">Name of the tag group</string>
+    <!-- Settings screen: icon description 🗑 of a tag group -->
+    <string name="delete_tag_group">Delete tag group</string>
+    <!-- Settings screen: icon description ✕ on a tag -->
+    <string name="delete_tag">Delete tag</string>
+    <!-- Settings screen: title (%1$s is the tag group name) of the dialog to add a tag -->
+    <string name="tag_name_dialog_title">New tag in %1$s</string>
     <!-- Export screen -->
     <string name="text_recognition_disabled">Text recognition: disabled</string>
     <!-- Export screen -->

@@ -56,6 +56,7 @@ class AndroidPdfWriter(val ocrService: OcrService, val assets: AssetManager) : P
         outputStream: OutputStream,
         disableOcr: Boolean,
         onPageCompleted: (Int) -> Unit,
+        onOcrText: (pageIndex: Int, text: String) -> Unit,
     ) {
         val doc = PDDocument()
         doc.documentInformation.creationDate = Calendar.getInstance()
@@ -110,6 +111,10 @@ class AndroidPdfWriter(val ocrService: OcrService, val assets: AssetManager) : P
                             heightPoints
                         )
                         ocrDocument.addPage(page, ocrTextBoxes, pdfPageDimensions)
+                        onOcrText(
+                            index,
+                            ocrTextBoxes.joinToString(" ") { it.text }
+                        )
                     } catch (e: Exception) {
                         Log.e("AndroidPdfWriter", "Failed to run OCR on page $index", e)
                     }

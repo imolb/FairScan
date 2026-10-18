@@ -51,10 +51,12 @@ import org.fairscan.app.domain.jpegsToExport
 import org.fairscan.app.domain.pagesToExport
 import org.fairscan.app.ui.screens.settings.ExportFormat
 import org.fairscan.app.ui.screens.settings.ExportFormat.PDF
+import org.fairscan.app.ui.screens.settings.ExportFolder
 import org.fairscan.imageprocessing.ColorMode
 import java.io.File
 import java.io.FileInputStream
 import java.io.IOException
+import java.util.Date
 import java.util.concurrent.CancellationException
 import kotlin.coroutines.resume
 import kotlin.coroutines.suspendCoroutine
@@ -79,14 +81,15 @@ class ExportViewModel(container: AppContainer, val imageRepository: ImageReposit
         exportQuality: ExportQuality,
         disableOcr: Boolean,
         onPageCompleted: (Int) -> Unit,
+        onOcrText: (pageIndex: Int, text: String) -> Unit = { _, _ -> },
     ): ExportResult.Pdf = withContext(Dispatchers.IO) {
         val pageToExports = pagesToExport(imageRepository, exportQuality)
-        val pdf = fileManager.generatePdf(pageToExports, disableOcr, onPageCompleted)
+        val pdf = fileManager.generatePdf(pageToExports, disableOcr, onPageCompleted, onOcrText)
         return@withContext ExportResult.Pdf(pdf.file, pdf.sizeInBytes, pdf.pageCount)
     }
 
     suspend fun generatePdfForExternalCall(): ExportResult.Pdf {
-        val pdf = generatePdf(ExportQuality.BALANCED, true) {}
+        val pdf = generatePdf(ExportQuality.BALANCED, true, {})
         val sourceFile = pdf.file
         val targetFile = File(sourceFile.parentFile, defaultFilename() + ".pdf")
         if (sourceFile.absolutePath == targetFile.absolutePath) return pdf
@@ -107,7 +110,10 @@ class ExportViewModel(container: AppContainer, val imageRepository: ImageReposit
     }
 
     fun resetFilename() {
-        setFilename("")
+        // A cleared field is not a user edit: the next scan must get a fresh proposal
+        _uiState.update {
+            it.copy(filename = "", isUserDefinedFilename = false)
+        }
     }
 
     private fun defaultFilename(): String {
@@ -117,12 +123,15 @@ class ExportViewModel(container: AppContainer, val imageRepository: ImageReposit
     private fun ensureValidFilename() {
         _uiState.update {
             val normalized = it.filename.trim()
-            if (normalized.isEmpty() || !it.isUserDefinedFilename) {
-                it.copy(filename = defaultFilename(), isUserDefinedFilename = false)
-            } else if (normalized != it.filename) {
-                it.copy(filename = normalized)
-            } else it
+            if (it.isUserDefinedFilename && normalized.isNotEmpty()) {
+                // Keep the user's filename, only normalize whitespace
+                if (normalized != it.filename) it.copy(filename = normalized) else it
+            } else {
+                // Keep the generated filename untouched; it is recomputed below
+                it
+            }
         }
+        updateFilenameProposal()
     }
 
     private suspend fun currentPageKeys(): ImmutableList<PageViewKey> =
@@ -145,6 +154,8 @@ class ExportViewModel(container: AppContainer, val imageRepository: ImageReposit
             val exportQuality = settingsRepository.exportQuality.first()
             val exportFormat = settingsRepository.exportFormat.first()
             val ocrLanguageString = ocrService.languageString()
+            val exportFolders = settingsRepository.exportFolders.first()
+            val tagGroups = settingsRepository.tagGroups.first()
 
             val currentPageKeys = currentPageKeys()
             val key = ExportPreparationKey(
@@ -157,20 +168,35 @@ class ExportViewModel(container: AppContainer, val imageRepository: ImageReposit
             lastPreparationKey = key
             preparationJob?.cancel()
             preparationJob?.join()
+            hasUserSelectedTags = false
+            hasUserSelectedFolder = false
 
             preparationJob = launch {
                 val ocrActivation = if (exportFormat == PDF) ocrLanguageString.isNotEmpty() else null
                 val blackAndWhiteAsJpeg = exportFormat == ExportFormat.JPEG &&
                     currentPageKeys.any { it.colorMode == ColorMode.BLACK_AND_WHITE }
                 _uiState.update {
+                    val selectedFolderUri =
+                        it.selectedFolderUri?.takeIf { selected -> exportFolders.any { it.uri == selected } }
+                    val selectedTags = it.selectedTags.filterKeys { groupName ->
+                        tagGroups.any { it.name == groupName }
+                    }
                     ExportUiState(
                         filename = it.filename,
+                        isUserDefinedFilename = it.isUserDefinedFilename,
                         format = exportFormat,
                         isGenerating = true,
                         progress = ExportProgress(0, pageCount),
                         ocrActivation = ocrActivation,
                         blackAndWhiteAsJpeg = blackAndWhiteAsJpeg,
+                        exportFolders = exportFolders,
+                        selectedFolderUri = selectedFolderUri,
+                        tagGroups = tagGroups,
+                        selectedTags = selectedTags,
                     )
+                }
+                if (ocrActivation != true) {
+                    updateFilenameProposal()
                 }
                 val onPageCompleted: (Int) -> Unit = { completedPages ->
                     ensureActive()
@@ -178,14 +204,51 @@ class ExportViewModel(container: AppContainer, val imageRepository: ImageReposit
                         it.copy(progress = ExportProgress(completedPages, pageCount))
                     }
                 }
+                val ocrPageTexts = mutableListOf<String>()
+                val onOcrText: (Int, String) -> Unit = { _, text ->
+                    ensureActive()
+                    ocrPageTexts.add(text)
+                }
                 try {
                     val t1 = System.currentTimeMillis()
                     val result = if (exportFormat == ExportFormat.JPEG) {
                         generateJpegs(exportQuality, onPageCompleted)
                     } else {
-                        generatePdf(exportQuality, false, onPageCompleted)
+                        generatePdf(exportQuality, false, onPageCompleted, onOcrText)
                     }
                     _uiState.update { it.copy(result = result) }
+                    if (ocrActivation == true) {
+                        // Preselect the tags and the export folder whose given
+                        // name appears first in the scanned text, as long as the
+                        // user has not made a manual selection
+                        val preselectedTags =
+                            if (!hasUserSelectedTags) {
+                                TagPreselection.preselect(tagGroups, ocrPageTexts)
+                            } else {
+                                null
+                            }
+                        val preselectedFolderUri =
+                            if (!hasUserSelectedFolder) {
+                                TagPreselection
+                                    .firstMatchIndex(
+                                        exportFolders.map { listOf(it.givenName) },
+                                        ocrPageTexts,
+                                    )
+                                    ?.let { matchIndex -> exportFolders.getOrNull(matchIndex)?.uri }
+                            } else {
+                                null
+                            }
+                        if (preselectedTags != null || preselectedFolderUri != null) {
+                            _uiState.update { state ->
+                                state.copy(
+                                    selectedTags = preselectedTags ?: state.selectedTags,
+                                    selectedFolderUri =
+                                        preselectedFolderUri ?: state.selectedFolderUri,
+                                )
+                            }
+                        }
+                    }
+                    updateFilenameProposal()
                     val t2 = System.currentTimeMillis()
                     Log.i("Export", "Generation: $pageCount pages, $exportQuality, ${t2 - t1} ms")
                 } catch (e: CancellationException) {
@@ -200,6 +263,66 @@ class ExportViewModel(container: AppContainer, val imageRepository: ImageReposit
                 } finally {
                     _uiState.update { it.copy(isGenerating = false) }
                 }
+            }
+        }
+    }
+
+    private var hasUserSelectedTags = false
+    private var hasUserSelectedFolder = false
+
+    fun onFolderSelected(uri: String?) {
+        hasUserSelectedFolder = true
+        _uiState.update {
+            it.copy(selectedFolderUri = uri?.takeIf { selected ->
+                it.exportFolders.any { folder -> folder.uri == selected }
+            })
+        }
+        updateFilenameProposal()
+    }
+
+    fun onTagToggled(groupName: String, tag: String) {
+        hasUserSelectedTags = true
+        _uiState.update {
+            val selected = it.selectedTags[groupName]
+            val newTags = if (selected == tag) {
+                it.selectedTags - groupName
+            } else {
+                it.selectedTags + (groupName to tag)
+            }
+            it.copy(selectedTags = newTags)
+        }
+        updateFilenameProposal()
+    }
+
+    private fun selectedFolder(): ExportFolder? {
+        val state = _uiState.value
+        return state.exportFolders.firstOrNull { it.uri == state.selectedFolderUri }
+    }
+
+    /**
+     * Proposes the filename from the current folder and tag selections, unless
+     * the user has entered a non-empty filename manually. Falls back to the
+     * default filename style when neither a folder nor a tag is selected.
+     */
+    private fun updateFilenameProposal() {
+        _uiState.update { state ->
+            if (state.isUserDefinedFilename && state.filename.isNotBlank()) {
+                state
+            } else {
+                val folder = selectedFolder()
+                val filename = if (folder == null && state.selectedTags.isEmpty()) {
+                    defaultFilename()
+                } else {
+                    TaggedFilename.proposal(
+                        date = Date(),
+                        tagGroups = state.tagGroups,
+                        selectedTags = state.selectedTags,
+                        exportFolderName = folder?.givenName,
+                    )
+                }
+                // A regenerated filename is not user-defined: later selection
+                // changes must keep updating it
+                state.copy(filename = filename, isUserDefinedFilename = false)
             }
         }
     }
@@ -284,6 +407,17 @@ class ExportViewModel(container: AppContainer, val imageRepository: ImageReposit
             _uiState.update {it.copy(isSaving = true, error = null, savedBundle = null) }
             val exportFormat = uiState.value.format
             val saveDir = saveDir(context)
+            if (saveDir == null && uiState.value.exportFolders.isNotEmpty()) {
+                // The UI disables Save in this case; this is a safety net
+                _uiState.update {
+                    it.copy(
+                        isSaving = false,
+                        error = ExportError.OnSave(
+                            R.string.error_export_folder_required, null)
+                    )
+                }
+                return@launch
+            }
             try {
                 // Must not run on the main thread: some SAF providers (e.g. Nextcloud)
                 // may perform network I/O
@@ -307,8 +441,11 @@ class ExportViewModel(container: AppContainer, val imageRepository: ImageReposit
         }
     }
 
-    private suspend fun saveDir(context:Context): SaveDir? {
-        val uri = settingsRepository.exportDirUri.first()?.toUri() ?: return null
+    private suspend fun saveDir(context: Context): SaveDir? {
+        val state = _uiState.value
+        // With configured export folders, saving goes to the selected one.
+        // Without configured folders, it goes to Downloads (saveDir == null).
+        val uri = state.selectedFolderUri?.toUri() ?: return null
         val name = resolveExportDirName(context, uri)
         return SaveDir(uri, name)
     }
@@ -464,6 +601,8 @@ sealed class ExportResult {
 data class ExportActions(
     val prepareExportIfNeeded: () -> Unit,
     val setFilename: (String) -> Unit,
+    val selectFolder: (String?) -> Unit,
+    val toggleTag: (groupName: String, tag: String) -> Unit,
     val share: () -> Unit,
     val save: () -> Unit,
     val open: (SavedItem) -> Unit,

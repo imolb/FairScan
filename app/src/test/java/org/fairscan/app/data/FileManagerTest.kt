@@ -30,7 +30,15 @@ class FileManagerTest {
 
     val pdfDir: File = createTempDirectory().toFile()
     val externalDir: File = createTempDirectory().toFile()
-    val dummyPdfWriter = PdfWriter { _,_,_,_ -> }
+    val dummyPdfWriter = object : PdfWriter {
+        override suspend fun writePdfFromJpegs(
+            pages: List<PageToExport<EncodedImage>>,
+            outputStream: OutputStream,
+            disableOcr: Boolean,
+            onPageCompleted: (Int) -> Unit,
+            onOcrText: (pageIndex: Int, text: String) -> Unit,
+        ) {}
+    }
 
     @Test
     fun copyToExternalDir() {
@@ -81,6 +89,7 @@ class FileManagerTest {
                 outputStream: OutputStream,
                 disableOcr: Boolean,
                 onPageCompleted: (Int) -> Unit,
+                onOcrText: (pageIndex: Int, text: String) -> Unit,
             ) {
                 val list = pages.toList()
                 list.forEach { page -> outputStream.write(page.image.get().bytes) }
@@ -89,7 +98,7 @@ class FileManagerTest {
         val manager = FileManager(pdfDir, externalDir, fakePdfWriter)
         val pages = listOf(byteArrayOf(0x01, 0x02), byteArrayOf(0x11))
             .map { PageToExport<EncodedImage>(ScanPage("1", Rotation.R0, null, 1, null)) { Jpeg(it) } }
-        val pdf = manager.generatePdf(pages, true) {}
+        val pdf = manager.generatePdf(pages, true, {})
         assertThat(pdf.pageCount).isEqualTo(2)
         assertThat(pdf.sizeInBytes).isEqualTo(3)
         assertThat(pdf.file.readBytes()).isEqualTo(byteArrayOf(0x01, 0x02, 0x11))

@@ -24,6 +24,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.fairscan.app.AppContainer
 import org.fairscan.app.data.OcrLanguage
@@ -38,11 +39,18 @@ data class SettingsUiState(
 )
 
 data class ExportSettingsUiState(
-    val dirUri: String? = null,
-    val dirName: String? = null,
+    val folders: List<ExportFolder> = emptyList(),
+    // Display name of the folder on the device, per folder URI. Null: not resolvable
+    // (permission lost). Not yet resolved: entry missing.
+    val folderNames: Map<String, String?> = emptyMap(),
+    // Path of the folder on the device, per folder URI. Null: opaque or not resolvable.
+    val folderPaths: Map<String, String?> = emptyMap(),
     val format: ExportFormat = ExportFormat.PDF,
     val quality: ExportQuality = ExportQuality.BALANCED,
     val filenameStyle: DefaultFilenameStyle = DefaultFilenameStyle.SCAN_DATE_TIME,
+    val tagGroups: List<TagGroup> = emptyList(),
+    // URI of a folder picked with the system folder picker, waiting for its given name
+    val pendingNewFolderUri: String? = null,
 )
 
 data class OcrDownloadUiState(
@@ -50,6 +58,26 @@ data class OcrDownloadUiState(
     val downloadedBytes: Long = 0,
     val totalBytes: Long? = null,
     val failed: Boolean = false,
+)
+
+data class SettingsActions(
+    /** Opens the system folder picker. */
+    val onAddFolderClick: () -> Unit,
+    val onFolderNameConfirmed: (uri: String, name: String) -> Unit,
+    /** Called when the naming of the newly picked folder is cancelled. */
+    val onCancelAddFolder: (uri: String) -> Unit,
+    /** Called after the folder was removed from the settings. */
+    val onDeleteFolder: (uri: String) -> Unit,
+    val onRenameFolder: (uri: String, name: String) -> Unit,
+    val onMoveFolder: (uri: String, up: Boolean) -> Unit,
+    val onAddTagGroup: (name: String) -> Unit,
+    val onDeleteTagGroup: (name: String) -> Unit,
+    val onMoveTagGroup: (name: String, up: Boolean) -> Unit,
+    val onAddTag: (groupName: String, tag: String) -> Unit,
+    val onDeleteTag: (groupName: String, tagName: String) -> Unit,
+    val onMoveTag: (groupName: String, tagName: String, up: Boolean) -> Unit,
+    val onAddSynonym: (groupName: String, tagName: String, synonym: String) -> Unit,
+    val onDeleteSynonym: (groupName: String, tagName: String, synonym: String) -> Unit,
 )
 
 class SettingsViewModel(container: AppContainer) : ViewModel() {
@@ -62,19 +90,39 @@ class SettingsViewModel(container: AppContainer) : ViewModel() {
     private val _ocrDownload = MutableStateFlow<OcrDownloadUiState?>(null)
     private var downloadJob: Job? = null
 
-    private val _dirName = MutableStateFlow<String?>(null)
-    val dirName: StateFlow<String?> = _dirName
+    private val _folderNames = MutableStateFlow<Map<String, String?>>(emptyMap())
+    private val _folderPaths = MutableStateFlow<Map<String, String?>>(emptyMap())
+    private val _pendingNewFolderUri = MutableStateFlow<String?>(null)
+
+    private val exportSettingsBase =
+        combine(
+            repo.exportFolders,
+            _folderNames,
+            _folderPaths,
+            repo.tagGroups,
+            _pendingNewFolderUri,
+        ) { folders, names, paths, tagGroups, pendingNewFolderUri ->
+            ExportSettingsUiState(
+                folders = folders,
+                folderNames = names,
+                folderPaths = paths,
+                tagGroups = tagGroups,
+                pendingNewFolderUri = pendingNewFolderUri,
+            )
+        }
 
     private val exportSettingsState =
         combine(
-            repo.exportDirUri,
-            dirName,
+            exportSettingsBase,
             repo.exportFormat,
             repo.exportQuality,
             repo.defaultFilenameStyle,
-        ) {
-            dirUri, dirName, format, quality, filenameStyle ->
-            ExportSettingsUiState(dirUri, dirName, format, quality, filenameStyle)
+        ) { export, format, quality, filenameStyle ->
+            export.copy(
+                format = format,
+                quality = quality,
+                filenameStyle = filenameStyle,
+            )
         }
     val uiState = combine(
         repo.defaultColorMode,
@@ -113,10 +161,198 @@ class SettingsViewModel(container: AppContainer) : ViewModel() {
         }
     }
 
-    fun setExportDirUri(uri: String?) {
+    /** Called with the URI picked by the system folder picker. */
+    fun beginAddExportFolder(uri: String) {
+        _pendingNewFolderUri.value = uri
+    }
+
+    fun cancelAddExportFolder() {
+        _pendingNewFolderUri.value = null
+    }
+
+    fun addExportFolder(uri: String, givenName: String) {
+        _pendingNewFolderUri.value = null
+        val name = givenName.trim()
+        if (name.isEmpty()) return
         viewModelScope.launch {
-            repo.setExportDirUri(uri)
-            refreshExportDirName()
+            val folders = repo.exportFolders.first()
+            if (folders.none { it.uri == uri }) {
+                repo.setExportFolders(folders + ExportFolder(uri, name))
+                refreshFolderNames()
+            }
+        }
+    }
+
+    fun deleteExportFolder(uri: String) {
+        viewModelScope.launch {
+            repo.setExportFolders(
+                repo.exportFolders.first().filterNot { it.uri == uri }
+            )
+            _folderNames.update { it - uri }
+            _folderPaths.update { it - uri }
+        }
+    }
+
+    fun renameExportFolder(uri: String, givenName: String) {
+        val name = givenName.trim()
+        if (name.isEmpty()) return
+        viewModelScope.launch {
+            repo.setExportFolders(
+                repo.exportFolders.first().map {
+                    if (it.uri == uri) it.copy(givenName = name) else it
+                }
+            )
+        }
+    }
+
+    fun moveExportFolder(uri: String, up: Boolean) {
+        viewModelScope.launch {
+            val folders = repo.exportFolders.first().toMutableList()
+            val index = folders.indexOfFirst { it.uri == uri }
+            val target = if (up) index - 1 else index + 1
+            if (index in folders.indices && target in folders.indices) {
+                val folder = folders.removeAt(index)
+                folders.add(target, folder)
+                repo.setExportFolders(folders)
+            }
+        }
+    }
+
+    fun refreshFolderNames() {
+        viewModelScope.launch {
+            val folders = repo.exportFolders.first()
+            _folderNames.value = folders.associate { it.uri to repo.resolveExportDirName(it.uri) }
+            _folderPaths.value = folders.associate { it.uri to repo.resolveExportDirPath(it.uri) }
+        }
+    }
+
+    fun addTagGroup(name: String) {
+        val trimmed = name.trim()
+        if (trimmed.isEmpty()) return
+        viewModelScope.launch {
+            val groups = repo.tagGroups.first()
+            if (groups.none { it.name == trimmed }) {
+                repo.setTagGroups(groups + TagGroup(trimmed, emptyList()))
+            }
+        }
+    }
+
+    fun deleteTagGroup(name: String) {
+        viewModelScope.launch {
+            repo.setTagGroups(
+                repo.tagGroups.first().filterNot { it.name == name }
+            )
+        }
+    }
+
+    fun moveTagGroup(name: String, up: Boolean) {
+        viewModelScope.launch {
+            val groups = repo.tagGroups.first().toMutableList()
+            val index = groups.indexOfFirst { it.name == name }
+            val target = if (up) index - 1 else index + 1
+            if (index in groups.indices && target in groups.indices) {
+                val group = groups.removeAt(index)
+                groups.add(target, group)
+                repo.setTagGroups(groups)
+            }
+        }
+    }
+
+    fun addTag(groupName: String, tag: String) {
+        val trimmed = tag.trim()
+        if (trimmed.isEmpty()) return
+        viewModelScope.launch {
+            val groups = repo.tagGroups.first().map { group ->
+                if (group.name == groupName && group.tags.none { it.name == trimmed }) {
+                    group.copy(tags = group.tags + Tag(trimmed))
+                } else {
+                    group
+                }
+            }
+            repo.setTagGroups(groups)
+        }
+    }
+
+    fun deleteTag(groupName: String, tagName: String) {
+        viewModelScope.launch {
+            repo.setTagGroups(
+                repo.tagGroups.first().map { group ->
+                    if (group.name == groupName) {
+                        group.copy(tags = group.tags.filterNot { it.name == tagName })
+                    } else {
+                        group
+                    }
+                }
+            )
+        }
+    }
+
+    fun moveTag(groupName: String, tagName: String, up: Boolean) {
+        viewModelScope.launch {
+            val groups = repo.tagGroups.first().map { group ->
+                if (group.name != groupName) {
+                    group
+                } else {
+                    val tags = group.tags.toMutableList()
+                    val index = tags.indexOfFirst { it.name == tagName }
+                    val target = if (up) index - 1 else index + 1
+                    if (index in tags.indices && target in tags.indices) {
+                        val tag = tags.removeAt(index)
+                        tags.add(target, tag)
+                        group.copy(tags = tags)
+                    } else {
+                        group
+                    }
+                }
+            }
+            repo.setTagGroups(groups)
+        }
+    }
+
+    fun addSynonym(groupName: String, tagName: String, synonym: String) {
+        val trimmed = synonym.trim()
+        if (trimmed.isEmpty()) return
+        viewModelScope.launch {
+            val groups = repo.tagGroups.first()
+            val group = groups.firstOrNull { it.name == groupName } ?: return@launch
+            // Synonyms are unique within the tag group: the new word must not
+            // exist there as a tag name or another synonym
+            val taken = group.tags.any { tag ->
+                tag.name == trimmed || tag.synonyms.any { it == trimmed }
+            }
+            if (taken) return@launch
+            val updated = group.copy(
+                tags = group.tags.map { tag ->
+                    if (tag.name == tagName) {
+                        tag.copy(synonyms = tag.synonyms + trimmed)
+                    } else {
+                        tag
+                    }
+                }
+            )
+            repo.setTagGroups(groups.map { if (it.name == groupName) updated else it })
+        }
+    }
+
+    fun deleteSynonym(groupName: String, tagName: String, synonym: String) {
+        viewModelScope.launch {
+            repo.setTagGroups(
+                repo.tagGroups.first().map { group ->
+                    if (group.name == groupName) {
+                        group.copy(
+                            tags = group.tags.map { tag ->
+                                if (tag.name == tagName) {
+                                    tag.copy(synonyms = tag.synonyms.filterNot { it == synonym })
+                                } else {
+                                    tag
+                                }
+                            }
+                        )
+                    } else {
+                        group
+                    }
+                }
+            )
         }
     }
 
@@ -139,10 +375,7 @@ class SettingsViewModel(container: AppContainer) : ViewModel() {
     }
 
     fun refreshExportDirName() {
-        viewModelScope.launch {
-            val uri = repo.exportDirUri.first()
-            _dirName.value = uri?.let { repo.resolveExportDirName(it) }
-        }
+        refreshFolderNames()
     }
 
     fun onLanguageClick(code: String) {

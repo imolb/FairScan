@@ -27,6 +27,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -54,6 +56,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -99,6 +102,7 @@ import org.fairscan.app.ui.components.pageCountText
 import org.fairscan.app.ui.dummyNavigation
 import org.fairscan.app.ui.fakeDocument
 import org.fairscan.app.ui.screens.settings.ExportFormat.PDF
+import org.fairscan.app.ui.screens.settings.displayName
 import org.fairscan.app.ui.state.DocumentUiModel
 import org.fairscan.app.ui.theme.FairScanTheme
 import java.io.File
@@ -131,6 +135,8 @@ fun ExportScreenWrapper(
 
     ExportScreen(
         onFilenameChange = onFilenameChange,
+        onSelectFolder = exportActions.selectFolder,
+        onToggleTag = exportActions.toggleTag,
         uiState = uiState,
         currentDocument = currentDocument,
         navigation = navigation,
@@ -164,6 +170,8 @@ fun ExportScreenWrapper(
 @Composable
 fun ExportScreen(
     onFilenameChange: (String) -> Unit,
+    onSelectFolder: (String?) -> Unit,
+    onToggleTag: (groupName: String, tag: String) -> Unit,
     uiState: ExportUiState,
     currentDocument: DocumentUiModel,
     navigation: Navigation,
@@ -189,12 +197,14 @@ fun ExportScreen(
         val onThumbnailClick = navigation.toDocumentScreen
         if (!isLandscape(LocalConfiguration.current)) {
             Column(
-                modifier = containerModifier.fillMaxSize().padding(vertical = 16.dp),
+                modifier = containerModifier
+                    .fillMaxSize()
+                    .padding(vertical = 16.dp)
+                    .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 PdfInfosAndResultBar(uiState, currentDocument, onOpen, onThumbnailClick)
-                Spacer(Modifier.weight(1f)) // push buttons down
-                MainActions(onFilenameChange, uiState, onShare, onSave, onCloseScan)
+                MainActions(onFilenameChange, onSelectFolder, onToggleTag, uiState, onShare, onSave, onCloseScan)
             }
         } else {
             Row(
@@ -208,8 +218,12 @@ fun ExportScreen(
                 ) {
                     PdfInfosAndResultBar(uiState, currentDocument, onOpen, onThumbnailClick)
                 }
-                Column(modifier = Modifier.weight(1f)) {
-                    MainActions(onFilenameChange, uiState, onShare, onSave, onCloseScan)
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    MainActions(onFilenameChange, onSelectFolder, onToggleTag, uiState, onShare, onSave, onCloseScan)
                 }
             }
 
@@ -384,6 +398,8 @@ private fun FilenameTextField(
 @Composable
 private fun MainActions(
     onFilenameChange: (String) -> Unit,
+    onSelectFolder: (String?) -> Unit,
+    onToggleTag: (groupName: String, tag: String) -> Unit,
     uiState: ExportUiState,
     onShare: () -> Unit,
     onSave: () -> Unit,
@@ -393,6 +409,10 @@ private fun MainActions(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         ActionSurface {
+            if (uiState.exportFolders.isNotEmpty()) {
+                FolderSelection(uiState, onSelectFolder)
+            }
+            TagSelection(uiState, onToggleTag)
             FilenameTextField(uiState.filename, onFilenameChange)
 
             Row(
@@ -409,7 +429,7 @@ private fun MainActions(
                 )
                 ExportButton(
                     onClick = onSave,
-                    enabled = uiState.result != null,
+                    enabled = uiState.result != null && uiState.isFolderSelectedOrNotRequired,
                     isPrimary = !uiState.hasSavedOrShared,
                     icon = Icons.Default.Download,
                     text = stringResource(R.string.save),
@@ -425,6 +445,56 @@ private fun MainActions(
             modifier = Modifier.fillMaxWidth(),
             isPrimary = uiState.hasSavedOrShared,
         )
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun FolderSelection(
+    uiState: ExportUiState,
+    onSelectFolder: (String?) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(stringResource(R.string.export_directory))
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            uiState.exportFolders.forEach { folder ->
+                FilterChip(
+                    selected = folder.uri == uiState.selectedFolderUri,
+                    onClick = {
+                        onSelectFolder(
+                            if (uiState.selectedFolderUri == folder.uri) null else folder.uri
+                        )
+                    },
+                    label = { Text(folder.displayName()) },
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun TagSelection(
+    uiState: ExportUiState,
+    onToggleTag: (groupName: String, tag: String) -> Unit,
+) {
+    uiState.tagGroups.forEach { group ->
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(group.name)
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                group.tags.forEach { tag ->
+                    FilterChip(
+                        selected = uiState.selectedTags[group.name] == tag.name,
+                        onClick = { onToggleTag(group.name, tag.name) },
+                        label = { Text(tag.name) },
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -736,6 +806,8 @@ fun ExportPreviewToCustomize(uiState: ExportUiState) {
     FairScanTheme {
         ExportScreen(
             onFilenameChange = {_->},
+            onSelectFolder = {},
+            onToggleTag = { _, _ -> },
             uiState = uiState,
             currentDocument = fakeDocument(
                 persistentListOf("gallica.bnf.fr-bpt6k5530456s-1"),

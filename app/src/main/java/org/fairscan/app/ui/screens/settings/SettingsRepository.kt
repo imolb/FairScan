@@ -15,6 +15,7 @@
 package org.fairscan.app.ui.screens.settings
 
 import android.content.Context
+import android.provider.DocumentsContract
 import androidx.core.net.toUri
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
@@ -22,11 +23,13 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.documentfile.provider.DocumentFile
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.withContext
 import org.fairscan.app.R
 import org.fairscan.app.domain.ExportQuality
 import org.fairscan.imageprocessing.ColorMode
@@ -43,6 +46,8 @@ class SettingsRepository(
     private val DEFAULT_COLOR_MODE = stringPreferencesKey("default_color_mode")
     private val DEFAULT_FILENAME_STYLE = stringPreferencesKey("default_filename_style")
     private val EXPORT_DIR_URI = stringPreferencesKey("export_dir_uri")
+    private val EXPORT_FOLDERS = stringPreferencesKey("export_folders")
+    private val TAG_GROUPS = stringPreferencesKey("tag_groups")
     private val EXPORT_FORMAT = stringPreferencesKey("export_format")
     private val EXPORT_QUALITY = stringPreferencesKey("export_quality")
 
@@ -57,13 +62,52 @@ class SettingsRepository(
             }
         }
 
-    val exportDirUri: Flow<String?> =
+    /**
+     * The export folder list. Migrates the legacy single export folder
+     * (export_dir_uri) as first entry, named after the folder display name.
+     * The legacy key is removed with the first write of the list.
+     */
+    val exportFolders: Flow<List<ExportFolder>> =
         dataStore.data.map { prefs ->
-            prefs[EXPORT_DIR_URI]
+            val stored = prefs[EXPORT_FOLDERS]
+            if (stored != null) {
+                ExportFoldersCodec.decode(stored)
+            } else {
+                val legacyUri = prefs[EXPORT_DIR_URI]
+                if (legacyUri != null) {
+                    val name = withContext(Dispatchers.IO) {
+                        resolveExportDirName(legacyUri)
+                    } ?: context.getString(R.string.export_folder_default_name)
+                    listOf(ExportFolder(legacyUri, name))
+                } else {
+                    emptyList()
+                }
+            }
+        }
+
+    val tagGroups: Flow<List<TagGroup>> =
+        dataStore.data.map { prefs ->
+            TagGroupsCodec.decode(prefs[TAG_GROUPS])
         }
 
     fun resolveExportDirName(uri: String): String? {
         return DocumentFile.fromTreeUri(context, uri.toUri())?.name
+    }
+
+    /**
+     * Path of the folder on the device, derived from the SAF tree document ID
+     * (e.g. "primary:Documents/Scans" -> "Documents/Scans"). Null if the
+     * document ID is opaque (e.g. cloud providers) or cannot be resolved.
+     */
+    fun resolveExportDirPath(uri: String): String? {
+        return try {
+            val documentId = DocumentsContract.getTreeDocumentId(uri.toUri())
+                ?: return null
+            val path = documentId.substringAfter(':', "")
+            path.takeIf { it.isNotBlank() }
+        } catch (e: Exception) {
+            null
+        }
     }
 
     val exportFormat: Flow<ExportFormat> =
@@ -106,13 +150,17 @@ class SettingsRepository(
         }
     }
 
-    suspend fun setExportDirUri(uri: String?) {
+    suspend fun setExportFolders(folders: List<ExportFolder>) {
         dataStore.edit { prefs ->
-            if (uri == null) {
-                prefs.remove(EXPORT_DIR_URI)
-            } else {
-                prefs[EXPORT_DIR_URI] = uri
-            }
+            prefs[EXPORT_FOLDERS] = ExportFoldersCodec.encode(folders)
+            // The legacy single export folder is replaced by the list
+            prefs.remove(EXPORT_DIR_URI)
+        }
+    }
+
+    suspend fun setTagGroups(groups: List<TagGroup>) {
+        dataStore.edit { prefs ->
+            prefs[TAG_GROUPS] = TagGroupsCodec.encode(groups)
         }
     }
 
